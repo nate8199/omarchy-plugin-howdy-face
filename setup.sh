@@ -13,12 +13,12 @@ Usage: $(basename "$0") [--check] [--remove]
 Prepare Howdy face unlock for this Omarchy lock plugin.
 
   --check   Print status only. Makes no changes.
-  --remove  Delete $PAM_FILE. Does not uninstall Howdy.
+  --remove  Delete $PAM_FILE (legacy; no longer used by the plugin).
   --help    Show this help.
 
 Installs howdy-git from the AUR if missing, points Howdy at the IR
-camera, writes the lock PAM service, and tells you if a face still
-needs enrolling.
+camera, and tells you if a face still needs enrolling. Does not touch
+PAM configuration.
 
 Must run in a terminal (sudo and enrollment prompt). Agents: read
 AGENTS.md in this directory before running anything.
@@ -193,17 +193,6 @@ configure_camera() {
   set_ini capture_successful false
 }
 
-write_pam() {
-  local module
-  module=$(howdy_module)
-  echo "Writing $PAM_FILE"
-  as_root tee "$PAM_FILE" >/dev/null <<EOF
-#%PAM-1.0
-auth       required                    $module
-account    include                     system-local-login
-EOF
-}
-
 enroll_if_needed() {
   if model_ready; then
     echo "Face model already present for $(target_user)."
@@ -283,7 +272,10 @@ need_tty
 echo "Setting up Howdy face unlock for Omarchy ($PLUGIN_ID)"
 install_deps
 configure_camera
-write_pam
+if pam_ready; then
+  echo "$PAM_FILE exists from an older version."
+  echo "The plugin does not use it. Remove it with: $0 --remove"
+fi
 enroll_status=0
 enroll_if_needed || enroll_status=$?
 enable_plugin

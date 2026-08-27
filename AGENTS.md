@@ -55,10 +55,10 @@ Work in this repo (or a copy under `~/Projects`). Do **not** edit files under `~
 - Installs `v4l-utils` (`omarchy pkg add`) and `howdy-git` (`omarchy pkg aur add`) if missing.
 - Finds a GREY IR camera, sets `device_path` / `frame_width` / `frame_height` in `/etc/howdy/config.ini` when unset.
 - Disables Howdy snapshots.
-- Writes `/etc/pam.d/omarchy-lock-howdy` using `pam_howdy.so` (Howdy 3 / howdy-git).
+- Does NOT touch PAM. A leftover `/etc/pam.d/omarchy-lock-howdy` from older versions is unused; suggest `./setup.sh --remove`.
 - Enables this plugin if it is installed but not enabled.
 
-The lock button is shown when **both** `/usr/lib/howdy/compare.py` and `/etc/howdy/models/$USER.dat` exist.
+The lock button is shown when **both** `/usr/lib/howdy/compare.py` and `/etc/howdy/models/$USER.dat` exist. The model file must stay root-owned; do not `chown` it to the user.
 
 Face unlock runs `python3 /usr/lib/howdy/compare.py $USER` and unlocks on exit 0. Do **not** use `pam_howdy` for the lock button: `workaround=input` also starts a password prompt, then hangs waiting for Enter (`uinput` is not available to the lock).
 

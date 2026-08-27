@@ -23,6 +23,7 @@ Item {
   property bool howdyAuthenticating: false
   property bool pendingHowdy: false
   property bool howdyCancelled: false
+  property bool howdyKillPending: false
   property bool passwordPamConfigured: false
   property bool fingerprintConfigured: false
   property bool howdyConfigured: false
@@ -121,6 +122,15 @@ Item {
     console.log("omarchy lock " + lastEventAt + " " + event)
   }
 
+  // Kills an in-flight face scan and marks its eventual exit event so a scan
+  // started right after it cannot misread the dead process's result.
+  function stopHowdyScan() {
+    if (!howdyCompareProc.running) return
+    howdyCancelled = true
+    howdyKillPending = true
+    howdyCompareProc.running = false
+  }
+
   function resetAuthenticationState() {
     enteredPassword = ""
     pendingPassword = ""
@@ -133,7 +143,7 @@ Item {
     fingerprintRetryTimer.stop()
     howdyWatchdog.stop()
     howdyCancelled = true
-    if (howdyCompareProc.running) howdyCompareProc.running = false
+    stopHowdyScan()
     if (passwordPam.active) passwordPam.abort()
     if (fingerprintPam.active) fingerprintPam.abort()
   }
@@ -191,10 +201,7 @@ Item {
     var password = String(value || "")
     if (!lockRequested || authenticatingPassword || password.length === 0) return
 
-    if (howdyCompareProc.running) {
-      howdyCancelled = true
-      howdyCompareProc.running = false
-    }
+    stopHowdyScan()
     howdyAuthenticating = false
     runWake()
     pendingPassword = password
@@ -254,27 +261,41 @@ Item {
     howdyCancelled = true
     howdyAuthenticating = false
     howdyWatchdog.stop()
-    if (howdyCompareProc.running) howdyCompareProc.running = false
+    stopHowdyScan()
     runWake()
     logEvent("howdy-cancelled")
   }
 
-  function handleHowdyFinished(matched) {
+  function handleHowdyFinished(matched, exitCode) {
+    if (howdyKillPending) {
+      howdyKillPending = false
+      return
+    }
+
     var wasAuthenticating = howdyAuthenticating
     howdyAuthenticating = false
     howdyWatchdog.stop()
 
     if (!lockRequested || !wasAuthenticating || howdyCancelled) return
-    if (matched) finishUnlock()
-    else handleHowdyFailure()
+    if (matched) {
+      finishUnlock()
+      return
+    }
+
+    var reason = "Face not recognized"
+    if (exitCode === 10) reason = "No face model enrolled"
+    else if (exitCode === 13) reason = "IR image too dark"
+    else if (exitCode === 14) reason = "Camera unavailable"
+    else if (exitCode !== 11) reason = "Face unlock failed (" + exitCode + ")"
+    handleHowdyFailure(reason)
   }
 
-  function handleHowdyFailure() {
+  function handleHowdyFailure(message) {
     if (!lockRequested) return
 
     howdyAuthenticating = false
     howdyWatchdog.stop()
-    failureMessage = "Face not recognized"
+    failureMessage = String(message || "Face not recognized")
     runWake()
   }
 
@@ -435,9 +456,11 @@ Item {
   Process {
     id: howdyCompareProc
     workingDirectory: "/usr/lib/howdy"
-    command: ["env", "-u", "DISPLAY", "-u", "WAYLAND_DISPLAY", "python3", "/usr/lib/howdy/compare.py", root.userName]
+    command: ["env", "-u", "DISPLAY", "-u", "WAYLAND_DISPLAY",
+              "-u", "PYTHONPATH", "-u", "PYTHONHOME", "-u", "PYTHONSTARTUP",
+              "python3", "/usr/lib/howdy/compare.py", root.userName]
     onExited: function(exitCode) {
-      root.handleHowdyFinished(exitCode === 0)
+      root.handleHowdyFinished(exitCode === 0, exitCode)
     }
   }
 
@@ -492,10 +515,7 @@ Item {
     stdout: StdioCollector { id: howdyCheckStdout; waitForEnd: true }
     onExited: {
       root.howdyConfigured = String(howdyCheckStdout.text || "").trim() === "yes"
-      if (!root.howdyConfigured && howdyCompareProc.running) {
-        root.howdyCancelled = true
-        howdyCompareProc.running = false
-      }
+      if (!root.howdyConfigured) stopHowdyScan()
     }
   }
 
