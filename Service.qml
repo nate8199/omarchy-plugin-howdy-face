@@ -24,6 +24,9 @@ Item {
   property bool pendingHowdy: false
   property bool howdyCancelled: false
   property bool howdyKillPending: false
+  property int howdyAttempts: 0
+  property bool howdyFaceLockedOut: false
+  readonly property int maxFaceAttempts: 5
   property bool passwordPamConfigured: false
   property bool fingerprintConfigured: false
   property bool howdyConfigured: false
@@ -143,6 +146,8 @@ Item {
     fingerprintRetryTimer.stop()
     howdyWatchdog.stop()
     howdyCancelled = true
+    howdyAttempts = 0
+    howdyFaceLockedOut = false
     stopHowdyScan()
     if (passwordPam.active) passwordPam.abort()
     if (fingerprintPam.active) fingerprintPam.abort()
@@ -235,6 +240,11 @@ Item {
   function startHowdy() {
     if (!lockRequested || !howdyConfigured) return
     if (howdyCompareProc.running || howdyAuthenticating || authenticatingPassword) return
+    if (howdyFaceLockedOut) {
+      failureMessage = "Face unlock disabled — use your password"
+      runWake()
+      return
+    }
     if (!sessionLock.secure) {
       pendingHowdy = true
       return
@@ -279,6 +289,14 @@ Item {
     if (!lockRequested || !wasAuthenticating || howdyCancelled) return
     if (matched) {
       finishUnlock()
+      return
+    }
+
+    howdyAttempts += 1
+    if (howdyAttempts >= maxFaceAttempts) {
+      howdyFaceLockedOut = true
+      logEvent("howdy-locked-out")
+      handleHowdyFailure("Too many face attempts — use your password")
       return
     }
 
@@ -511,7 +529,15 @@ Item {
 
   Process {
     id: howdyCheckProc
-    command: ["bash", "-c", "if [[ -f /usr/lib/howdy/compare.py && -f /etc/howdy/models/${USER}.dat ]]; then echo yes; else echo no; fi"]
+    // Only trust face auth assets that the session cannot rewrite: the model
+    // and compare.py must be root-owned and not group/world-writable.
+    command: ["bash", "-c", [
+      "m=/etc/howdy/models/${USER}.dat",
+      "[[ -f /usr/lib/howdy/compare.py && -f $m ]] || { echo no; exit 0; }",
+      "[[ $(stat -c %u /usr/lib/howdy/compare.py) == 0 && $(stat -c %u $m) == 0 ]] || { echo no; exit 0; }",
+      "[[ -z $(find /usr/lib/howdy/compare.py $m -perm /go+w -print -quit) ]] || { echo no; exit 0; }",
+      "echo yes"
+    ].join("; ")]
     stdout: StdioCollector { id: howdyCheckStdout; waitForEnd: true }
     onExited: {
       root.howdyConfigured = String(howdyCheckStdout.text || "").trim() === "yes"

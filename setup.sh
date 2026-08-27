@@ -77,7 +77,9 @@ ini_value() {
 
 set_ini() {
   local key=$1 val=$2
-  as_root python3 - "$HOWDY_INI" "$key" "$val" <<'PY'
+  # -I keeps the caller's CWD off sys.path, so a planted pathlib.py/re.py
+  # in the directory setup.sh is run from cannot execute as root.
+  as_root python3 -I - "$HOWDY_INI" "$key" "$val" <<'PY'
 import pathlib, re, sys
 path, key, val = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 text = path.read_text() if path.exists() else ""

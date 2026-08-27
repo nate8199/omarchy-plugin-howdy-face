@@ -26,7 +26,8 @@ Then lock with Super+Ctrl+L (or `omarchy system lock`) and press **Unlock with f
 
 ## Security notes
 
-- Face unlock runs `compare.py` as your user — no root Python on the lock path — and unlocks only on exit status `0`. The matched model at `/etc/howdy/models/<user>.dat` must stay **root-owned** (`root:root`, not group/world writable); any session code able to rewrite it could enroll a face everyone matches.
+- Face unlock runs `compare.py` as your user — no root Python on the lock path — and unlocks only on exit status `0`. Before the face button appears, the lock screen verifies `/usr/lib/howdy/compare.py` and `/etc/howdy/models/<user>.dat` are **root-owned and not group/world-writable**; any session code able to rewrite them could otherwise enroll a face everyone matches.
+- Face scans are limited to 5 failed attempts per lock; after that only password works until the next lock.
 - Camera snapshots are disabled by `setup.sh` (`capture_failed=false`, `capture_successful=false`); Howdy never stores images.
 - The camera is only opened when you press **Unlock with face**; there is no always-on scanning. Escape or **Cancel** kills the scan immediately.
 - Password unlocking keeps PAM faillock rate limiting. Face attempts are deliberately button-triggered rather than continuously retried.
