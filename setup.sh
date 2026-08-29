@@ -122,8 +122,17 @@ detect_ir_device() {
 
 detect_ir_size() {
   local dev=$1
+  # Split on '/' too: some cameras (e.g. square IR sensors) report this line
+  # as "Width/Height : 360/360" rather than "640x480" — without '/' in the
+  # field separator, awk treats "360/360" as one unsplit field, and the
+  # width/height parsing in configure_camera() below silently glues both
+  # numbers into a single garbled value (e.g. `frame_width = 360/360`),
+  # which later crashes compare.py's configparser.getint(). Adding '/' to
+  # the separator also splits the "Width/Height" label itself, shifting the
+  # value fields from $2,$3 to $3,$4 — works for both `360/360` and the more
+  # common `640x480` shape either way.
   v4l2-ctl -d "$dev" --get-fmt-video 2>/dev/null |
-    awk -F '[:x ]+' '/Width\/Height/ { print $2, $3; exit }'
+    awk -F '[:x/ ]+' '/Width\/Height/ { print $3, $4; exit }'
 }
 
 plugin_enabled() {
@@ -174,7 +183,12 @@ configure_camera() {
   fi
 
   current=$(ini_value device_path)
-  if [[ -z $current || $current == null ]]; then
+  # Howdy's own config.ini ships `device_path = none` as its placeholder
+  # default — treat that the same as unset, or this never writes the real
+  # camera path and Howdy fails with "could not find a camera device at
+  # the path specified in the config file" on every enrollment/unlock
+  # attempt.
+  if [[ -z $current || $current == null || $current == none ]]; then
     echo "Setting Howdy device_path to $ir"
     set_ini device_path "$ir"
   else

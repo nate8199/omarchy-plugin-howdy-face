@@ -474,9 +474,30 @@ Item {
   Process {
     id: howdyCompareProc
     workingDirectory: "/usr/lib/howdy"
+    // Absolute path, not bare "python3": a lock-screen auth path shouldn't
+    // silently depend on whatever python3 resolves to in a mutable PATH.
+    // Any version manager that shims python3 ahead of /usr/bin (mise,
+    // pyenv, asdf, an activated venv inherited into the session) points
+    // this at an interpreter that doesn't have Howdy's dependencies
+    // (dlib, cv2, ...) installed, since those are only present in the
+    // system Python's site-packages. Fails as an immediate, silent
+    // ModuleNotFoundError with no camera activity — easy to mistake for a
+    // hardware/config problem instead of an environment one.
     command: ["env", "-u", "DISPLAY", "-u", "WAYLAND_DISPLAY",
               "-u", "PYTHONPATH", "-u", "PYTHONHOME", "-u", "PYTHONSTARTUP",
-              "python3", "/usr/lib/howdy/compare.py", root.userName]
+              "/usr/bin/python3", "/usr/lib/howdy/compare.py", root.userName]
+    // Silent unless compare.py actually writes something — a crash
+    // traceback, for example. Without this, failures here are close to
+    // undiagnosable: exitCode alone doesn't distinguish "wrong python3
+    // found no module" from a dozen other causes.
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (text) console.log("[howdy-compare stdout]", text)
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (text) console.log("[howdy-compare stderr]", text)
+    }
     onExited: function(exitCode) {
       root.handleHowdyFinished(exitCode === 0, exitCode)
     }
